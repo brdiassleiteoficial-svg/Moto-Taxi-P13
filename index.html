@@ -1100,4 +1100,147 @@
             if(!r || !driverMap) return;
 
             if(driverOriginMarker) driverMap.removeLayer(driverOriginMarker);
-            if(driverDestMarker) drive
+            if(driverDestMarker) driverMap.removeLayer(driverDestMarker);
+            if(driverRouteLine) driverMap.removeLayer(driverRouteLine);
+
+            driverOriginMarker = L.marker(r.originCoords, { icon: originIcon }).addTo(driverMap)
+                .bindPopup(`<b>Passageiro: ${r.passengerName}</b><br>${r.originText}`).openPopup();
+            
+            driverDestMarker = L.marker(r.destCoords, { icon: destIcon }).addTo(driverMap)
+                .bindPopup(`<b>Destino:</b><br>${r.destText}`);
+
+            const routeData = await fetchRealStreetRoute(r.originCoords, r.destCoords);
+
+            driverRouteLine = L.polyline(routeData.coordinates, {
+                color: '#F59E0B',
+                weight: 5,
+                opacity: 0.95,
+                lineJoin: 'round'
+            }).addTo(driverMap);
+
+            driverMap.fitBounds(driverRouteLine.getBounds(), { padding: [45, 45] });
+
+            // Link externo para GPS Google Maps
+            const navBtn = document.getElementById('driver-gmaps-nav');
+            navBtn.href = `https://www.google.com/maps/dir/?api=1&origin=${r.originCoords[0]},${r.originCoords[1]}&destination=${r.destCoords[0]},${r.destCoords[1]}`;
+            navBtn.classList.remove('hidden');
+            navBtn.classList.add('flex');
+
+            document.getElementById('driver-selected-ride-info').innerHTML = `
+                <div class="flex justify-between items-center">
+                    <div>
+                        <p class="font-bold text-white">${r.passengerName} (${r.passengerPhone})</p>
+                        <p class="text-emerald-400 mt-0.5">Embarque: ${r.originText}</p>
+                        <p class="text-amber-400">Destino: ${r.destText}</p>
+                    </div>
+                    <div class="text-right">
+                        <span class="text-base font-extrabold text-white block">R$ ${Number(r.price).toFixed(2).replace('.', ',')}</span>
+                        <span class="text-[11px] text-slate-400">${routeData.distanceKm} km • ~${routeData.durationMin} min</span>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderDriverRides() {
+            const listEl = document.getElementById('driver-rides-list');
+            
+            const pending = rides.filter(r => r.status === 'Pendente' || r.status === 'Em Andamento').length;
+            const completed = rides.filter(r => r.status === 'Concluída');
+            const earnings = completed.reduce((acc, r) => acc + Number(r.price), 0);
+
+            document.getElementById('drv-stat-pending').textContent = pending;
+            document.getElementById('drv-stat-completed').textContent = completed.length;
+            document.getElementById('drv-stat-earnings').textContent = `R$ ${earnings.toFixed(0)}`;
+
+            if(rides.length === 0) {
+                listEl.innerHTML = `<div class="bg-dark-900 p-6 rounded-2xl text-center text-slate-500 text-xs">Nenhuma solicitação recebida ainda.</div>`;
+                return;
+            }
+
+            let html = '';
+            rides.forEach(r => {
+                const cleanPhone = r.passengerPhone.replace(/\D/g, '');
+                const waUrl = `https://wa.me/55${cleanPhone}?text=${encodeURIComponent(`Olá ${r.passengerName}! Aqui é o motorista ${driverConfig.name} (DrivePro VIP). Já recebi seu pedido (${r.id}) e estou a caminho!`)}`;
+
+                html += `
+                    <div class="bg-dark-900 border border-dark-800 hover:border-dark-700 rounded-2xl p-4 space-y-3 transition">
+                        <div class="flex justify-between items-start">
+                            <div>
+                                <div class="flex items-center gap-2">
+                                    <span class="font-extrabold text-white text-sm">${r.passengerName}</span>
+                                    <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-dark-800 text-amber-400 border border-dark-700">${r.status}</span>
+                                </div>
+                                <p class="text-xs text-slate-400">${r.passengerPhone} • Pagamento: <strong class="text-slate-200">${r.payment}</strong></p>
+                            </div>
+                            <span class="text-base font-extrabold text-emerald-400">R$ ${Number(r.price).toFixed(2).replace('.', ',')}</span>
+                        </div>
+
+                        <div class="bg-dark-800/60 p-3 rounded-xl space-y-1 text-xs">
+                            <p class="text-slate-300"><i class="fa-solid fa-circle-dot text-emerald-400 mr-1"></i> ${r.originText}</p>
+                            <p class="text-slate-300"><i class="fa-solid fa-location-dot text-amber-400 mr-1"></i> ${r.destText}</p>
+                            ${r.notes ? `<p class="text-amber-300/90 italic mt-1">Obs: ${r.notes}</p>` : ''}
+                        </div>
+
+                        <div class="flex flex-wrap items-center justify-between gap-2 pt-1">
+                            <button onclick="viewRideOnDriverMap('${r.id}')" class="bg-amber-500/20 hover:bg-amber-500/30 text-amber-400 border border-amber-500/30 text-xs font-bold px-3 py-1.5 rounded-lg transition">
+                                <i class="fa-solid fa-route mr-1"></i> Ver Rota no Mapa
+                            </button>
+
+                            <div class="flex items-center gap-1.5">
+                                <a href="${waUrl}" target="_blank" class="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-2.5 py-1.5 rounded-lg">
+                                    <i class="fa-brands fa-whatsapp"></i>
+                                </a>
+                                ${r.status === 'Pendente' ? `
+                                    <button onclick="changeRideStatus('${r.id}', 'Em Andamento')" class="bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold px-2.5 py-1.5 rounded-lg">Aceitar</button>
+                                ` : ''}
+                                ${r.status === 'Pendente' || r.status === 'Em Andamento' ? `
+                                    <button onclick="changeRideStatus('${r.id}', 'Concluída')" class="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-2.5 py-1.5 rounded-lg">Concluir</button>
+                                    <button onclick="changeRideStatus('${r.id}', 'Cancelada')" class="bg-red-500/20 text-red-400 hover:bg-red-500/30 text-xs font-bold px-2.5 py-1.5 rounded-lg">Cancelar</button>
+                                ` : ''}
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+            listEl.innerHTML = html;
+        }
+
+        function changeRideStatus(id, newStatus) {
+            const ride = rides.find(r => r.id === id);
+            if(ride) {
+                ride.status = newStatus;
+                localStorage.setItem('drivepro_rides', JSON.stringify(rides));
+                renderDriverRides();
+                if(newStatus === 'Em Andamento') viewRideOnDriverMap(id);
+                showToast(`Corrida marcada como: ${newStatus}`);
+            }
+        }
+
+        function loadDriverSettingsToForm() {
+            document.getElementById('cfg-name').value = driverConfig.name;
+            document.getElementById('cfg-whatsapp').value = driverConfig.whatsapp;
+            document.getElementById('cfg-car').value = driverConfig.carModel;
+            document.getElementById('cfg-plate').value = driverConfig.plate;
+            document.getElementById('cfg-base-fare').value = driverConfig.baseFare;
+            document.getElementById('cfg-km-fare').value = driverConfig.pricePerKm;
+            document.getElementById('cfg-min-fare').value = driverConfig.minFare;
+        }
+
+        function saveDriverSettings(e) {
+            e.preventDefault();
+            driverConfig.name = document.getElementById('cfg-name').value.trim();
+            driverConfig.whatsapp = document.getElementById('cfg-whatsapp').value.trim();
+            driverConfig.carModel = document.getElementById('cfg-car').value.trim();
+            driverConfig.plate = document.getElementById('cfg-plate').value.trim();
+            driverConfig.baseFare = parseFloat(document.getElementById('cfg-base-fare').value);
+            driverConfig.pricePerKm = parseFloat(document.getElementById('cfg-km-fare').value);
+            driverConfig.minFare = parseFloat(document.getElementById('cfg-min-fare').value);
+
+            localStorage.setItem('drivepro_config', JSON.stringify(driverConfig));
+            applyDriverConfigToUI();
+            updateRouteAndPrice();
+            showToast('Configurações e tarifas atualizadas!');
+        }
+    </script>
+</body>
+</html>
